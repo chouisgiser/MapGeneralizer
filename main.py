@@ -28,8 +28,7 @@ map_generalizer.add_argument('-optim', '--optimizer', type=str, help='Specify op
 map_generalizer.add_argument('-weight', '--weight_decay', type=float, help='Weight decay for the optimizer', default=1e-6)
 map_generalizer.add_argument('-dropout', '--dropout', type=float, help='Dropout for the model', default=0.0)
 
-map_generalizer.add_argument('-task', '--task', type=str, help='Specify task', choices=['Shape_Encoding', 'Bldgs_Gen', 'Node_removal', 'Vec_dir',
-                                                                                        'Vec_dis', 'Vec_dir_dis'],
+map_generalizer.add_argument('-task', '--task', type=str, help='Specify task', choices=['Bldgs_Gen', 'Node_removal', 'Vec_dir', 'Vec_dis'],
                              default='Bldgs_Gen')
 map_generalizer.add_argument('-model', '--model', type=str, help='Specify model', choices=['GAE', 'GCN', 'GAT', 'GraphSAGE'],
                              default='GraphSAGE')
