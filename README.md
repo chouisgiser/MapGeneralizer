@@ -13,11 +13,11 @@ Config the input directory and hyperparameters in main.py and run it. In case of
 
 # Citation
 >@article{zhou2023move,  
->  title={Move and remove: Multi-task learning for building simplification in vector maps with a graph convolutional neural network},  
->  author={Zhou, Zhiyong and Fu, Cheng and Weibel, Robert},  
->  journal={ISPRS Journal of Photogrammetry and Remote Sensing},  
->  volume={202},  
->  pages={205--218},  
->  year={2023},  
->  publisher={Elsevier}  
+>    title={Move and remove: Multi-task learning for building simplification in vector maps with a graph convolutional neural network},  
+>    author={Zhou, Zhiyong and Fu, Cheng and Weibel, Robert},  
+>    journal={ISPRS Journal of Photogrammetry and Remote Sensing},  
+>    volume={202},  
+>    pages={205--218},  
+>    year={2023},  
+>    publisher={Elsevier}  
 >}
