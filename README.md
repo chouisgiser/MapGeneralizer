@@ -9,7 +9,9 @@ The source code of the manuscript entitle "Move and remove: Multi-task learning 
 * torch-geometric 2.0.3
 
 # Data description
+
 The building graph features and labels are stored in the directory *data/input/* with numpy *.npy* file. The description for each columan of the file is as follows:
+
 * Column 0: osm id of the building corresponding to the vertice
 * Column 1: vertex id of the vertice
 * Column 2: longitude of the vertice
@@ -20,10 +22,9 @@ The building graph features and labels are stored in the directory *data/input/*
 * Column 7: convexity of the vertice
 * Column 8: preceeding edge length of the vertice 
 * Column 9: succeeding edge length of the vertice
-* Column 10: the removal label
-* Column 11: the movement label along the preceeding edge
-* Column 12: the movement label along the succeeding edge
-
+* Column 10: **the removal label**
+* Column 11: **the movement label** along the preceeding edge
+* Column 12: **the movement** label along the succeeding edge
 
 # Usage
 
