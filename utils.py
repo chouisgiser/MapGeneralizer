@@ -176,7 +176,7 @@ def label_check(ply_features, polygon):
         iou = target_ply.intersection(polygon).area / target_ply.union(polygon).area
         print('polygon {}\'s iou is: {}'.format(ply_id, iou))
         return True
-        
+
 def label_check2(ply_features, polygon):
     ply_id = int(ply_features[0][0])
     source_ply_coords = [(ply_features[vid][2], ply_features[vid][3]) for vid in range(len(ply_features))]
@@ -392,6 +392,11 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
     return torch.tensor(gt_areas), torch.tensor(pred_areas), torch.tensor(gt_inangle_sums), torch.tensor(pred_inangle_sums)
 
 def automatic_weight(model, task_loss):
+    """
+    It is adapted from https://github.com/Mikoto10032/AutomaticWeightedLoss.git
+    The orginal paper is: Auxiliary tasks in multi-task learning
+    """
+
     total_loss = 0
     for i in range(len(task_loss)):
         total_loss += 0.5 / (model.weights[i] ** 2) * task_loss[i] + torch.log(1 + model.weights[i] ** 2)
