@@ -162,39 +162,26 @@ class BuildingGenModel(nn.Module):
     def forward(self, x, edge_index):
 
         rm = F.relu(self.rm_norm1(self.rm_l1(x, edge_index)))
-        # rm = F.relu(self.rm_l1(x, edge_index))
-        # rm = F.dropout(rm, self.dropout, training=self.training)
 
         rm = F.relu(self.rm_norm2(self.rm_l2(rm, edge_index)))
-        # rm = F.relu(self.rm_l2(rm, edge_index))
-        # rm = F.dropout(rm, self.dropout, training=self.training)
 
         rm = self.rm_l4(rm, edge_index)
-        # rm = self.rm_l4(rm)
 
         x = F.relu(self.shared_norm1(self.shared_l1(torch.cat((x, rm), 1), edge_index)))
-        # x = F.relu(self.shared_l1(torch.cat((x, rm), 1), edge_index))
-        # x = F.dropout(x, self.dropout, training=self.training)
-        # x = F.relu(self.shared_norm1(self.shared_l1(x, edge_index)))
 
         rm = F.log_softmax(rm, dim=1)
 
         rm_labels = rm.max(1)[1]
         rm_labels = torch.where(rm_labels == 2, 1, 0)
-        # rm_labels = torch.where(rm_labels == 0, 0, 1)
 
         preMove = F.relu(self.premove_norm1(self.premove_l1(x, edge_index)))
-        # rtAngle = F.relu(self.rtang_l1(x, edge_index))
-        # rtAngle = F.dropout(rtAngle, self.dropout, training=self.training)
-        # rtAngle = F.relu(self.rtang_norm1(self.rtang_l1(x)))
-        preMove = self.rtang_l3(preMove)
+
+        preMove = self.premove_l3(preMove)
         preMove = torch.flatten(preMove)
         preMove = torch.mul(preMove, rm_labels)
 
         sucMove = F.relu(self.sucmove_norm1(self.sucmove_l1(x, edge_index)))
-        # moveDis = F.relu(self.movedis_l1(x, edge_index))
-        # moveDis = F.dropout(moveDis, self.dropout, training=self.training)
-        # moveDis = F.relu(self.movedis_norm1(self.movedis_l1(x)))
+
         sucMove = self.sucmove_l3(sucMove)
         sucMove = torch.flatten(sucMove)
         sucMove = torch.mul(sucMove, rm_labels)
