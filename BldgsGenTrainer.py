@@ -22,6 +22,7 @@ torch.manual_seed(0)
 import geopandas as gpd
 # from focal_loss.focal_loss import FocalLoss
 from torch_geometric.utils import dense_to_sparse, degree
+from utils import automatic_weight
 
 # loss: autoweight
 # tasks: node removal, vector rotation direction, vector move distance
@@ -135,10 +136,10 @@ class MTL_BuildingGen(object):
             # [1.0, 0.11, 0.75] [1.0, 1.0, 1.0]
             class_weight = torch.FloatTensor([1.0, 1.0, 1.0])
             criterion = nn.NLLLoss(weight = class_weight, reduction='mean')
-        elif self.params['cls_loss'] == 'Focal':
-            criterion = FocalLoss(alpha=0.9, gamma=2.0)
-        elif self.params['cls_loss'] == 'Dice':
-            criterion = DiceLoss()
+        # elif self.params['cls_loss'] == 'Focal':
+        #     criterion = FocalLoss(alpha=0.9, gamma=2.0)
+        # elif self.params['cls_loss'] == 'Dice':
+        #     criterion = DiceLoss()
         else:
             raise NotImplementedError('Invalid loss function.')
         return criterion
@@ -381,556 +382,556 @@ class MTL_BuildingGen(object):
 
         return eval_loss, eval_removal_dict, eval_move_dict, eval_preMove_dict, eval_nextMove_dict
 
-class SFModelTrainer(object):
-    def __init__(self, params:dict, data_container):
-        self.params = params
-        self.data = data_container.load_data()
-        self.data_loader = self.get_data_loader()
-        self.model = self.get_model()
-        self.criterion = self.get_cls_loss()
-        self.optimizer = self.get_optimizer()
-
-    def get_data_loader(self):
-        data_loader = dict()
-
-        train_set = list()
-        train_adj = self.data['train_adj_matrix']
-        for idx in range(len(train_adj)):
-            source_array, target_array, _ = find(train_adj[idx])
-            train_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['train_features'][idx][:, -3] == 0) | (self.data['train_features'][idx][:, -3] == 1) )
-            self.data['train_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['train_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            train_y = self.data['train_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            train_features = self.data['train_features'][idx][:, features_idx].astype(np.float32)
-            train_x = torch.from_numpy(train_features)
-            # print(train_x.size())
-            train_graph = Data(x=train_x, edge_index=train_edge_index)
-            # print(train_edge_index.size())
-            train_graph.y = torch.from_numpy(train_y)
-            train_set.append(train_graph)
-        data_loader['train'] = DataLoader(dataset=train_set, batch_size=self.params['batch_size'], shuffle=True,
-                                          drop_last=True)
-
-        valid_set = list()
-        valid_adj = self.data['valid_adj_matrix']
-        for idx in range(len(valid_adj)):
-            source_array, target_array, _ = find(valid_adj[idx])
-            valid_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['valid_features'][idx][:, -3] == 0) | (self.data['valid_features'][idx][:, -3] == 1) )
-            self.data['valid_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['valid_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            valid_y = self.data['valid_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            valid_features = self.data['valid_features'][idx][:, features_idx].astype(np.float32)
-            valid_x = torch.from_numpy(valid_features)
-            valid_graph = Data(x=valid_x, edge_index=valid_edge_index)
-            valid_graph.y = torch.from_numpy(valid_y)
-            valid_set.append(valid_graph)
-        data_loader['val'] = DataLoader(dataset=valid_set, batch_size=1, shuffle=False,
-                                          drop_last=True)
-
-        test_set = list()
-        test_adj = self.data['test_adj_matrix']
-        for idx in range(len(test_adj)):
-            source_array, target_array, _ = find(test_adj[idx])
-            test_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['test_features'][idx][:, -3] == 0) | (self.data['test_features'][idx][:, -3] == 1) )
-            self.data['test_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['test_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            test_y = self.data['test_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            test_features = self.data['test_features'][idx][:, features_idx].astype(np.float32)
-            test_x = torch.from_numpy(test_features)
-            test_graph = Data(x=test_x, edge_index=test_edge_index)
-            test_graph.y = torch.from_numpy(test_y)
-            test_set.append(test_graph)
-        data_loader['test'] = DataLoader(dataset=test_set, batch_size=1, shuffle=False,
-                                          drop_last=True)
-        return data_loader
-
-    def get_model(self):
-        if self.params['task'] == 'Shape_Encoding':
-            in_channels, out_channels = len(self.params['K_order']) * 9, len(self.params['K_order']) * 9
-            encoder = GCAEncoder(in_channels, self.params['hidden_layers'])
-            decoder = GCADecoder(self.params['hidden_layers'], out_channels)
-            model = GAE(encoder=encoder, decoder=decoder)
-        elif self.params['task'] == 'Node_removal':
-            in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 3
-            if self.params['model'] == 'GCN':
-                model = NodeClsGCN(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'])
-            elif self.params['model'] == 'GAT':
-                model = NodeClsGAT(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'])
-            elif self.params['model'] == 'GraphSAGE':
-                model = NodeClsGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'], self.params['task'])
-            else:
-                raise NotImplementedError('Invalid model name.')
-        else:
-            raise NotImplementedError('Invalid task.')
-        if self.params['mode'] == 'test':
-            model_file = self.params['output_dir'] + '/' + self.params['model_file']
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            checkpoint = torch.load(model_file, map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
-        return model
-
-    def get_cls_loss(self):
-        if self.params['cls_loss'] == 'NLL':
-            criterion = nn.NLLLoss(reduction='mean')
-        else:
-            raise NotImplementedError('Invalid loss function.')
-        return criterion
-
-    def get_optimizer(self):
-        if self.params['optimizer'] == 'Adam':
-            optimizer = optim.Adam(params=self.model.parameters(),
-                                   lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
-            if self.params['mode'] == 'test':
-                model_file = self.params['output_dir'] + '/' + self.params['model_file']
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                checkpoint = torch.load(model_file, map_location=device)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        else:
-            raise NotImplementedError('Invalid optimizer name.')
-        return optimizer
-
-    def get_optimizer(self):
-        if self.params['optimizer'] == 'Adam':
-            optimizer = optim.Adam(params=self.model.parameters(),
-                                   lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
-            if self.params['mode'] == 'test':
-                model_file = self.params['output_dir'] + '/' + self.params['model_file']
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                checkpoint = torch.load(model_file, map_location=device)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        else:
-            raise NotImplementedError('Invalid optimizer name.')
-        return optimizer
-
-    def train(self):
-        train_history = dict()
-        train_history['epoch'] = list()
-        train_history['train_loss'] = list()
-        train_history['train_acc'] = list()
-        train_history['val_loss'] = list()
-        train_history['val_acc'] = list()
-        train_history['val_pre'] = list()
-        train_history['val_rec'] = list()
-        train_history['val_F1'] = list()
-
-        train_data = self.data_loader['train']
-        val_loss = np.inf
-        print("-----------Start training GCAE model-----------")
-        for epoch in range(1, 1 + self.params['num_epochs']):
-            starttime = datetime.now()
-            checkpoint = {'epoch': 0, 'model_state_dict': self.model.state_dict(),
-                          'optimizer_state_dict': self.optimizer.state_dict(), 'loss': self.criterion}
-
-            self.model.train()
-            train_loss = 0.0
-            train_acc = 0.0
-            batches = 0
-            for batch in train_data:
-                batches += 1
-                x = batch.x[:, 6:].float()
-                edge_index = batch.edge_index
-                output = self.model(x, edge_index)
-                batch_train_loss = self.criterion(output, batch.y[:, 0].long())
-                train_loss += batch_train_loss.item()
-                # train_acc += accuracy(output, batch.y).item()
-                train_acc += 0
-                self.optimizer.zero_grad()
-                batch_train_loss.backward()
-                self.optimizer.step()
-
-            train_acc = train_acc/batches
-            epoch_val_loss, val_acc, val_pre, val_rec, val_F1 = self.evaluation(self.data_loader['val'])
-
-            if epoch_val_loss <= val_loss:
-                print(f'Epoch {epoch}, validation loss drops from {val_loss:.5} to {epoch_val_loss:.5}. '
-                      f'Training loss {train_loss:.5}. Validation accuracy {val_acc:.5}.'
-                      f'Update model checkpoint..', f'used {(datetime.now() - starttime).seconds}s', flush=True)
-
-                val_loss = epoch_val_loss
-                checkpoint.update(epoch=epoch, model_state_dict=self.model.state_dict(), optimizer_state_dict = self.optimizer.state_dict())
-
-                orders = ''
-                for i in range(len(self.params["K_orders"])):
-                    orders += str(self.params["K_orders"][i])
-                    if i < len(self.params["K_orders"]) - 1:
-                        orders += '&'
-                torch.save(checkpoint, self.params['output_dir'] + f'/{self.params["task"]}_{self.params["batch_size"]}_{orders}.pkl')
-            else:
-                print(f'Epoch {epoch}, validation loss does not improve from {val_loss:.5}.',
-                      f'used {(datetime.now() - starttime).seconds}s', flush = True)
-
-            train_history['epoch'].append(epoch)
-            train_history['train_loss'].append(train_loss)
-            train_history['train_acc'].append(train_acc)
-            train_history['val_loss'].append(val_loss)
-            train_history['val_acc'].append(val_acc)
-            train_history['val_pre'].append(val_pre)
-            train_history['val_rec'].append(val_rec)
-            train_history['val_F1'].append(val_F1)
-
-        pd.DataFrame(train_history).to_csv(
-            self.params['output_dir'] + '/training_history_{}.csv'.format(datetime.now().strftime('%m%d%Y%H%M%S')))
-
-    def test(self):
-        _, test_acc, test_pre, test_rec, test_F1 = self.evaluation(self.data_loader['test'])
-        print(f'Test accuracy is: {test_acc}. Test precision is: {test_pre}. Test recall is: {test_rec}. Test F1 is: {test_F1}.', flush = True)
-
-    def evaluation(self, dataloader):
-        self.model.eval()
-        output_list = list()
-        y_list = list()
-        eval_loss = 0.0
-        gpd_points_list = list()
-
-        with torch.no_grad():
-            batch_idx = 0
-            for data in dataloader:
-                output = self.model(data.x[:, 6:].float(), data.edge_index)
-                output_list.append(output)
-                y_list.append(data.y[:, 0].long())
-                eval_loss += self.criterion(output, data.y[:, 0].long()).item()
-                if self.params['mode'] == 'test':
-                    idx = dataloader.dataset.indices[batch_idx]
-                    graph_features = self.data['features'][idx]
-                    gpd_points_list.append(STL_recontruct_points(graph_features, output))
-                batch_idx += 1
-
-            # if len(gpd_points_list) > 0:
-            #     gpd_points = gpd.GeoDataFrame(pd.concat(gpd_points_list, ignore_index=True))
-            #     gpd_points.to_file(self.params['output_dir'] + '/{}_prediction.shp'.format(self.params['task']))
-
-        eval_acc = accuracy(torch.cat(output_list), torch.cat(y_list)).item()
-        eval_pre = precision(torch.cat(output_list), torch.cat(y_list)).item()
-        eval_rec = recall(torch.cat(output_list), torch.cat(y_list)).item()
-        F1 = 2 * (eval_pre * eval_rec) / (eval_pre + eval_rec)
-
-        return eval_loss, eval_acc, eval_pre, eval_rec, F1
-
-class DPModelTrainer(object):
-    def __init__(self, params:dict, data_container):
-        self.params = params
-        self.data = data_container.load_data()
-        self.data_loader = self.get_data_loader()
-        self.model = self.get_model()
-        self.reg_criterion = self.get_reg_loss()
-        self.cls_criterion = self.get_cls_loss()
-        self.optimizer = self.get_optimizer()
-
-    def get_data_loader(self):
-        data_loader = dict()
-
-        train_set = list()
-        train_adj = self.data['train_adj_matrix']
-        for idx in range(len(train_adj)):
-            source_array, target_array, _ = find(train_adj[idx])
-            train_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['train_features'][idx][:, -3] == 0) | (self.data['train_features'][idx][:, -3] == 1) )
-            self.data['train_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['train_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            train_y = self.data['train_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            train_features = self.data['train_features'][idx][:, features_idx].astype(np.float32)
-            train_x = torch.from_numpy(train_features)
-            # print(train_x.size())
-            train_graph = Data(x=train_x, edge_index=train_edge_index)
-            # print(train_edge_index.size())
-            train_graph.y = torch.from_numpy(train_y)
-            train_set.append(train_graph)
-        data_loader['train'] = DataLoader(dataset=train_set, batch_size=self.params['batch_size'], shuffle=True,
-                                          drop_last=True)
-
-        valid_set = list()
-        valid_adj = self.data['valid_adj_matrix']
-        for idx in range(len(valid_adj)):
-            source_array, target_array, _ = find(valid_adj[idx])
-            valid_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['valid_features'][idx][:, -3] == 0) | (self.data['valid_features'][idx][:, -3] == 1) )
-            self.data['valid_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['valid_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            valid_y = self.data['valid_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            valid_features = self.data['valid_features'][idx][:, features_idx].astype(np.float32)
-            valid_x = torch.from_numpy(valid_features)
-            valid_graph = Data(x=valid_x, edge_index=valid_edge_index)
-            valid_graph.y = torch.from_numpy(valid_y)
-            valid_set.append(valid_graph)
-        data_loader['val'] = DataLoader(dataset=valid_set, batch_size=1, shuffle=False,
-                                          drop_last=True)
-
-        test_set = list()
-        test_adj = self.data['test_adj_matrix']
-        for idx in range(len(test_adj)):
-            source_array, target_array, _ = find(test_adj[idx])
-            test_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
-
-            no_movement_indices = np.where((self.data['test_features'][idx][:, -3] == 0) | (self.data['test_features'][idx][:, -3] == 1) )
-            self.data['test_features'][idx][no_movement_indices[0], -2] = 0
-            self.data['test_features'][idx][no_movement_indices[0], -1] = 0
-            features_idx = [0, 1, 2, 3, 4, 5]
-
-            test_y = self.data['test_features'][idx][:, [-3, -2, -1]].astype(np.float32)
-            for order in self.params['K_orders']:
-                    for feature_idx in self.params['features']:
-                        features_idx.append(6 + 4 * (order - 1) + feature_idx)
-            test_features = self.data['test_features'][idx][:, features_idx].astype(np.float32)
-            test_x = torch.from_numpy(test_features)
-            test_graph = Data(x=test_x, edge_index=test_edge_index)
-            test_graph.y = torch.from_numpy(test_y)
-            test_set.append(test_graph)
-        data_loader['test'] = DataLoader(dataset=test_set, batch_size=1, shuffle=False,
-                                          drop_last=True)
-        return data_loader
-
-    def get_model(self):
-        if self.params['task'] == 'Shape_Encoding':
-            in_channels, out_channels = len(self.params['K_order']) * 9, len(self.params['K_order']) * 9
-            encoder = GCAEncoder(in_channels, self.params['hidden_layers'])
-            decoder = GCADecoder(self.params['hidden_layers'], out_channels)
-            model = GAE(encoder=encoder, decoder=decoder)
-        elif self.params['task'] == 'Vec_dis':
-            in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 1
-            model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
-        elif self.params['task'] == 'Vec_dir':
-            in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 1
-            model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
-        elif self.params['task'] == 'Vec_dir_dis':
-            in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 2
-            model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
-        else:
-            raise NotImplementedError('Invalid task.')
-        if self.params['mode'] == 'test':
-            model_file = self.params['output_dir'] + '/' + self.params['model_file']
-            device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-            checkpoint = torch.load(model_file, map_location=device)
-            model.load_state_dict(checkpoint['model_state_dict'])
-        return model
-
-    def get_cls_loss(self):
-        if self.params['cls_loss'] == 'NLL':
-            criterion = nn.NLLLoss(reduction='mean')
-        else:
-            raise NotImplementedError('Invalid loss function.')
-        return criterion
-
-    def get_reg_loss(self):
-        if self.params['reg_loss'] == 'MSE':
-            criterion = nn.MSELoss(reduction='mean')
-        elif self.params['reg_loss'] == 'MAE':
-            criterion = nn.L1Loss(reduction='mean')
-        elif self.params['reg_loss'] == 'Huber':
-            criterion = nn.SmoothL1Loss(reduction='mean')
-        else:
-            raise NotImplementedError('Invalid loss function.')
-        return criterion
-
-    def get_optimizer(self):
-        if self.params['optimizer'] == 'Adam':
-            optimizer = optim.Adam(params=self.model.parameters(),
-                                   lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
-            if self.params['mode'] == 'test':
-                model_file = self.params['output_dir'] + '/' + self.params['model_file']
-                device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-                checkpoint = torch.load(model_file, map_location=device)
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        else:
-            raise NotImplementedError('Invalid optimizer name.')
-        return optimizer
-
-    def train(self):
-        train_history = dict()
-        train_history['epoch'] = list()
-        train_history['train_loss'] = list()
-        train_history['train_acc'] = list()
-        train_history['val_loss'] = list()
-        # train_history['val_acc'] = list()
-        # train_history['val_pre'] = list()
-        # train_history['val_rec'] = list()
-        # train_history['val_F1'] = list()
-
-        train_data = self.data_loader['train']
-        val_loss = np.inf
-        print("-----------Start training GCAE model-----------")
-        for epoch in range(1, 1 + self.params['num_epochs']):
-            starttime = datetime.now()
-            checkpoint = {'epoch': 0, 'model_state_dict': self.model.state_dict(),
-                          'optimizer_state_dict': self.optimizer.state_dict(), 'loss': self.reg_criterion}
-
-            self.model.train()
-            train_loss = 0.0
-            train_acc = 0.0
-            batches = 0
-            for batch in train_data:
-                batches += 1
-                x = batch.x[:, 6:].float()
-                edge_index = batch.edge_index
-                output = self.model(x, edge_index)
-                if self.params['task'] == 'Vec_dir':
-                    gt = batch.y[:, 1]
-                elif self.params['task'] == 'Vec_dis':
-                    gt = batch.y[:, 2]
-                elif self.params['task'] == 'Vec_dir_dis':
-                    gt = torch.flatten(batch.y[:, [1, 2]])
-                else:
-                    raise NotImplementedError('Invalid task.')
-                batch_train_loss = self.reg_criterion(output, gt)
-                train_loss += batch_train_loss.item()
-                # train_acc += accuracy(output, batch.y).item()
-                train_acc += 0
-                self.optimizer.zero_grad()
-                batch_train_loss.backward()
-                self.optimizer.step()
-
-            train_acc = train_acc/batches
-            epoch_val_loss = self.evaluation(self.data_loader['val'])
-
-            if epoch_val_loss['mse'] <= val_loss:
-                print(f'Epoch {epoch}, training loss drops from {val_loss:.5} to {train_loss/batches:.5}.  '
-                      f'Validation mse {epoch_val_loss["mse"]:.5}.'
-                      f'Update model checkpoint..', f'used {(datetime.now() - starttime).seconds}s', flush = True)
-
-                val_loss = epoch_val_loss['mse']
-
-                checkpoint.update(epoch=epoch, model_state_dict=self.model.state_dict(), optimizer_state_dict = self.optimizer.state_dict())
-
-                orders = ''
-                for i in range(len(self.params["K_orders"])):
-                    orders += str(self.params["K_orders"][i])
-                    if i < len(self.params["K_orders"]) - 1:
-                        orders += '&'
-                torch.save(checkpoint, self.params['output_dir'] + f'/{self.params["task"]}_{self.params["batch_size"]}_{orders}.pkl')
-            else:
-                print(f'Epoch {epoch}, validation loss does not improve from {val_loss:.5}.',
-                      f'used {(datetime.now() - starttime).seconds}s')
-
-            train_history['epoch'].append(epoch)
-            train_history['train_loss'].append(train_loss)
-            train_history['train_acc'].append(train_acc)
-            train_history['val_loss'].append(val_loss)
-
-        pd.DataFrame(train_history).to_csv(
-            self.params['output_dir'] + '/training_history_{}.csv'.format(datetime.now().strftime('%m%d%Y%H%M%S')))
-
-    def test(self):
-        eval_dp = self.evaluation(self.data_loader['test'])
-        if self.params['task'] == 'Vec_dir_dis':
-            print(
-                f'Test RMSE of rotation angle is: {eval_dp["rt_rmse"]}. Test RMSE of move distance is: {eval_dp["move_rmse"]}. '
-                f'Filtered test RMSE of rotation angle is: {eval_dp["rt_rmse_filter"]}. Filter test RMSE of move distance is: {eval_dp["move_rmse_filter"]}.', flush = True)
-        print(f'Test RMSE is: {eval_dp["rmse"]}. Filter test RMSE is: {eval_dp["rmse_filter"]}.', flush = True)
-
-    def evaluation(self, dataloader):
-        self.model.eval()
-        output_list = list()
-        # y_list = list()
-        eval_loss = 0.0
-        gpd_points_list = list()
-        eval_dp = dict()
-        # rmse_filter = []
-
-        with torch.no_grad():
-            mse = []
-            mse_filter = []
-            batch_idx = 0
-            rt_mse = []
-            move_mse = []
-            rt_mse_filter = []
-            move_mse_filter = []
-            for data in dataloader:
-                batch_idx += 1
-                output = self.model(data.x[:, 6:].float(), data.edge_index)
-                # output_list.append(output)
-                if self.params['task'] == 'Vec_dir':
-                    gt = data.y[:, 1]
-                elif self.params['task'] == 'Vec_dis':
-                    gt = data.y[:, 2]
-                elif self.params['task'] == 'Vec_dir_dis':
-                    gt = torch.flatten(data.y[:, [1, 2]])
-                else:
-                    raise NotImplementedError('Invalid task.')
-
-                mse.append(self.reg_criterion(output, gt))
-                # dis_filter = torch.abs(data.y[:, 2]) >= torch.tensor(0.01)
-                dis_filter = (torch.abs(data.y[:, 1]) + torch.abs(data.y[:, 2]))  >= torch.tensor(0.01)
-
-                if self.params['task'] == 'Vec_dir_dis':
-                    rt_idx = [2 * i for i in range(int(output.size(dim=0) / 2))]
-                    move_idx = [2 * i + 1 for i in range(int(output.size(dim=0) / 2))]
-                    rt_mse.append(
-                        self.reg_criterion(output[rt_idx], gt[rt_idx]))
-                    move_mse.append(self.reg_criterion(output[move_idx], gt[move_idx]))
-                    if dis_filter.nonzero().size(dim=0) != 0:
-                        rt_idx_filter = dis_filter.nonzero() * 2
-                        move_idx_filter = dis_filter.nonzero() * 2 + 1
-                        pred_filter = output[torch.stack([rt_idx_filter, move_idx_filter])]
-                        gt_filter = gt[torch.stack([rt_idx_filter, move_idx_filter])]
-                        mse_filter.append(self.reg_criterion(pred_filter, gt_filter))
-
-                        rt_mse_filter.append(self.reg_criterion(output[rt_idx_filter], gt[rt_idx_filter]))
-                        move_mse_filter.append(self.reg_criterion(output[move_idx_filter],gt[move_idx_filter]))
-                else:
-                    pred_filter = output[dis_filter.nonzero()]
-                    gt_filter = gt[dis_filter.nonzero()]
-                    if gt_filter.size()[0] != 0 and gt_filter.size()[1] != 0:
-                        mse_filter.append(self.reg_criterion(pred_filter, gt_filter))
-
-            mse = torch.stack(mse)
-            eval_dp['mse'] = torch.mean(mse).item()
-            eval_dp['rmse'] = torch.mean(torch.sqrt(mse)).item()
-            mse_filter = torch.stack(mse_filter)
-            eval_dp['mse_filter'] = torch.mean(mse_filter).item()
-            eval_dp['rmse_filter'] = torch.mean(torch.sqrt(mse_filter)).item()
-            if self.params['task'] == 'Vec_dir_dis':
-                rt_mse = torch.stack(rt_mse)
-                eval_dp['rt_mse'] = torch.mean(rt_mse).item()
-                eval_dp['rt_rmse'] = torch.mean(torch.sqrt(rt_mse)).item()
-                rt_mse_filter = torch.stack(rt_mse_filter)
-                eval_dp['rt_mse_filter'] = torch.mean(rt_mse_filter).item()
-                eval_dp['rt_rmse_filter'] = torch.mean(torch.sqrt(rt_mse_filter)).item()
-
-                move_mse = torch.stack(move_mse)
-                eval_dp['move_mse'] = torch.mean(move_mse).item()
-                eval_dp['move_rmse'] = torch.mean(torch.sqrt(move_mse)).item()
-                move_mse_filter = torch.stack(move_mse_filter)
-                eval_dp['move_mse_filter'] = torch.mean(move_mse_filter).item()
-                eval_dp['move_rmse_filter'] = torch.mean(torch.sqrt(move_mse_filter)).item()
-                if self.params['mode'] == 'test':
-                    idx = dataloader.dataset.indices[batch_idx]
-                    graph_features = self.data['features'][idx]
-                    gpd_points_list.append(STL_recontruct_points(graph_features, output))
-
-            if len(gpd_points_list) > 0:
-                gpd_points = gpd.GeoDataFrame(pd.concat(gpd_points_list, ignore_index=True))
-                gpd_points.to_file(self.params['output_dir'] + '/{}_prediction.shp'.format(self.params['task']))
-
-        return eval_dp
+# class SFModelTrainer(object):
+#     def __init__(self, params:dict, data_container):
+#         self.params = params
+#         self.data = data_container.load_data()
+#         self.data_loader = self.get_data_loader()
+#         self.model = self.get_model()
+#         self.criterion = self.get_cls_loss()
+#         self.optimizer = self.get_optimizer()
+#
+#     def get_data_loader(self):
+#         data_loader = dict()
+#
+#         train_set = list()
+#         train_adj = self.data['train_adj_matrix']
+#         for idx in range(len(train_adj)):
+#             source_array, target_array, _ = find(train_adj[idx])
+#             train_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['train_features'][idx][:, -3] == 0) | (self.data['train_features'][idx][:, -3] == 1) )
+#             self.data['train_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['train_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             train_y = self.data['train_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             train_features = self.data['train_features'][idx][:, features_idx].astype(np.float32)
+#             train_x = torch.from_numpy(train_features)
+#             # print(train_x.size())
+#             train_graph = Data(x=train_x, edge_index=train_edge_index)
+#             # print(train_edge_index.size())
+#             train_graph.y = torch.from_numpy(train_y)
+#             train_set.append(train_graph)
+#         data_loader['train'] = DataLoader(dataset=train_set, batch_size=self.params['batch_size'], shuffle=True,
+#                                           drop_last=True)
+#
+#         valid_set = list()
+#         valid_adj = self.data['valid_adj_matrix']
+#         for idx in range(len(valid_adj)):
+#             source_array, target_array, _ = find(valid_adj[idx])
+#             valid_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['valid_features'][idx][:, -3] == 0) | (self.data['valid_features'][idx][:, -3] == 1) )
+#             self.data['valid_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['valid_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             valid_y = self.data['valid_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             valid_features = self.data['valid_features'][idx][:, features_idx].astype(np.float32)
+#             valid_x = torch.from_numpy(valid_features)
+#             valid_graph = Data(x=valid_x, edge_index=valid_edge_index)
+#             valid_graph.y = torch.from_numpy(valid_y)
+#             valid_set.append(valid_graph)
+#         data_loader['val'] = DataLoader(dataset=valid_set, batch_size=1, shuffle=False,
+#                                           drop_last=True)
+#
+#         test_set = list()
+#         test_adj = self.data['test_adj_matrix']
+#         for idx in range(len(test_adj)):
+#             source_array, target_array, _ = find(test_adj[idx])
+#             test_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['test_features'][idx][:, -3] == 0) | (self.data['test_features'][idx][:, -3] == 1) )
+#             self.data['test_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['test_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             test_y = self.data['test_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             test_features = self.data['test_features'][idx][:, features_idx].astype(np.float32)
+#             test_x = torch.from_numpy(test_features)
+#             test_graph = Data(x=test_x, edge_index=test_edge_index)
+#             test_graph.y = torch.from_numpy(test_y)
+#             test_set.append(test_graph)
+#         data_loader['test'] = DataLoader(dataset=test_set, batch_size=1, shuffle=False,
+#                                           drop_last=True)
+#         return data_loader
+#
+#     def get_model(self):
+#         if self.params['task'] == 'Shape_Encoding':
+#             in_channels, out_channels = len(self.params['K_order']) * 9, len(self.params['K_order']) * 9
+#             encoder = GCAEncoder(in_channels, self.params['hidden_layers'])
+#             decoder = GCADecoder(self.params['hidden_layers'], out_channels)
+#             model = GAE(encoder=encoder, decoder=decoder)
+#         elif self.params['task'] == 'Node_removal':
+#             in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 3
+#             if self.params['model'] == 'GCN':
+#                 model = NodeClsGCN(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'])
+#             elif self.params['model'] == 'GAT':
+#                 model = NodeClsGAT(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'])
+#             elif self.params['model'] == 'GraphSAGE':
+#                 model = NodeClsGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['dropout'], self.params['task'])
+#             else:
+#                 raise NotImplementedError('Invalid model name.')
+#         else:
+#             raise NotImplementedError('Invalid task.')
+#         if self.params['mode'] == 'test':
+#             model_file = self.params['output_dir'] + '/' + self.params['model_file']
+#             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#             checkpoint = torch.load(model_file, map_location=device)
+#             model.load_state_dict(checkpoint['model_state_dict'])
+#         return model
+#
+#     def get_cls_loss(self):
+#         if self.params['cls_loss'] == 'NLL':
+#             criterion = nn.NLLLoss(reduction='mean')
+#         else:
+#             raise NotImplementedError('Invalid loss function.')
+#         return criterion
+#
+#     def get_optimizer(self):
+#         if self.params['optimizer'] == 'Adam':
+#             optimizer = optim.Adam(params=self.model.parameters(),
+#                                    lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
+#             if self.params['mode'] == 'test':
+#                 model_file = self.params['output_dir'] + '/' + self.params['model_file']
+#                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#                 checkpoint = torch.load(model_file, map_location=device)
+#                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#         else:
+#             raise NotImplementedError('Invalid optimizer name.')
+#         return optimizer
+#
+#     def get_optimizer(self):
+#         if self.params['optimizer'] == 'Adam':
+#             optimizer = optim.Adam(params=self.model.parameters(),
+#                                    lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
+#             if self.params['mode'] == 'test':
+#                 model_file = self.params['output_dir'] + '/' + self.params['model_file']
+#                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#                 checkpoint = torch.load(model_file, map_location=device)
+#                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#         else:
+#             raise NotImplementedError('Invalid optimizer name.')
+#         return optimizer
+#
+#     def train(self):
+#         train_history = dict()
+#         train_history['epoch'] = list()
+#         train_history['train_loss'] = list()
+#         train_history['train_acc'] = list()
+#         train_history['val_loss'] = list()
+#         train_history['val_acc'] = list()
+#         train_history['val_pre'] = list()
+#         train_history['val_rec'] = list()
+#         train_history['val_F1'] = list()
+#
+#         train_data = self.data_loader['train']
+#         val_loss = np.inf
+#         print("-----------Start training GCAE model-----------")
+#         for epoch in range(1, 1 + self.params['num_epochs']):
+#             starttime = datetime.now()
+#             checkpoint = {'epoch': 0, 'model_state_dict': self.model.state_dict(),
+#                           'optimizer_state_dict': self.optimizer.state_dict(), 'loss': self.criterion}
+#
+#             self.model.train()
+#             train_loss = 0.0
+#             train_acc = 0.0
+#             batches = 0
+#             for batch in train_data:
+#                 batches += 1
+#                 x = batch.x[:, 6:].float()
+#                 edge_index = batch.edge_index
+#                 output = self.model(x, edge_index)
+#                 batch_train_loss = self.criterion(output, batch.y[:, 0].long())
+#                 train_loss += batch_train_loss.item()
+#                 # train_acc += accuracy(output, batch.y).item()
+#                 train_acc += 0
+#                 self.optimizer.zero_grad()
+#                 batch_train_loss.backward()
+#                 self.optimizer.step()
+#
+#             train_acc = train_acc/batches
+#             epoch_val_loss, val_acc, val_pre, val_rec, val_F1 = self.evaluation(self.data_loader['val'])
+#
+#             if epoch_val_loss <= val_loss:
+#                 print(f'Epoch {epoch}, validation loss drops from {val_loss:.5} to {epoch_val_loss:.5}. '
+#                       f'Training loss {train_loss:.5}. Validation accuracy {val_acc:.5}.'
+#                       f'Update model checkpoint..', f'used {(datetime.now() - starttime).seconds}s', flush=True)
+#
+#                 val_loss = epoch_val_loss
+#                 checkpoint.update(epoch=epoch, model_state_dict=self.model.state_dict(), optimizer_state_dict = self.optimizer.state_dict())
+#
+#                 orders = ''
+#                 for i in range(len(self.params["K_orders"])):
+#                     orders += str(self.params["K_orders"][i])
+#                     if i < len(self.params["K_orders"]) - 1:
+#                         orders += '&'
+#                 torch.save(checkpoint, self.params['output_dir'] + f'/{self.params["task"]}_{self.params["batch_size"]}_{orders}.pkl')
+#             else:
+#                 print(f'Epoch {epoch}, validation loss does not improve from {val_loss:.5}.',
+#                       f'used {(datetime.now() - starttime).seconds}s', flush = True)
+#
+#             train_history['epoch'].append(epoch)
+#             train_history['train_loss'].append(train_loss)
+#             train_history['train_acc'].append(train_acc)
+#             train_history['val_loss'].append(val_loss)
+#             train_history['val_acc'].append(val_acc)
+#             train_history['val_pre'].append(val_pre)
+#             train_history['val_rec'].append(val_rec)
+#             train_history['val_F1'].append(val_F1)
+#
+#         pd.DataFrame(train_history).to_csv(
+#             self.params['output_dir'] + '/training_history_{}.csv'.format(datetime.now().strftime('%m%d%Y%H%M%S')))
+#
+#     def test(self):
+#         _, test_acc, test_pre, test_rec, test_F1 = self.evaluation(self.data_loader['test'])
+#         print(f'Test accuracy is: {test_acc}. Test precision is: {test_pre}. Test recall is: {test_rec}. Test F1 is: {test_F1}.', flush = True)
+#
+#     def evaluation(self, dataloader):
+#         self.model.eval()
+#         output_list = list()
+#         y_list = list()
+#         eval_loss = 0.0
+#         gpd_points_list = list()
+#
+#         with torch.no_grad():
+#             batch_idx = 0
+#             for data in dataloader:
+#                 output = self.model(data.x[:, 6:].float(), data.edge_index)
+#                 output_list.append(output)
+#                 y_list.append(data.y[:, 0].long())
+#                 eval_loss += self.criterion(output, data.y[:, 0].long()).item()
+#                 if self.params['mode'] == 'test':
+#                     idx = dataloader.dataset.indices[batch_idx]
+#                     graph_features = self.data['features'][idx]
+#                     gpd_points_list.append(STL_recontruct_points(graph_features, output))
+#                 batch_idx += 1
+#
+#             # if len(gpd_points_list) > 0:
+#             #     gpd_points = gpd.GeoDataFrame(pd.concat(gpd_points_list, ignore_index=True))
+#             #     gpd_points.to_file(self.params['output_dir'] + '/{}_prediction.shp'.format(self.params['task']))
+#
+#         eval_acc = accuracy(torch.cat(output_list), torch.cat(y_list)).item()
+#         eval_pre = precision(torch.cat(output_list), torch.cat(y_list)).item()
+#         eval_rec = recall(torch.cat(output_list), torch.cat(y_list)).item()
+#         F1 = 2 * (eval_pre * eval_rec) / (eval_pre + eval_rec)
+#
+#         return eval_loss, eval_acc, eval_pre, eval_rec, F1
+#
+# class DPModelTrainer(object):
+#     def __init__(self, params:dict, data_container):
+#         self.params = params
+#         self.data = data_container.load_data()
+#         self.data_loader = self.get_data_loader()
+#         self.model = self.get_model()
+#         self.reg_criterion = self.get_reg_loss()
+#         self.cls_criterion = self.get_cls_loss()
+#         self.optimizer = self.get_optimizer()
+#
+#     def get_data_loader(self):
+#         data_loader = dict()
+#
+#         train_set = list()
+#         train_adj = self.data['train_adj_matrix']
+#         for idx in range(len(train_adj)):
+#             source_array, target_array, _ = find(train_adj[idx])
+#             train_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['train_features'][idx][:, -3] == 0) | (self.data['train_features'][idx][:, -3] == 1) )
+#             self.data['train_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['train_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             train_y = self.data['train_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             train_features = self.data['train_features'][idx][:, features_idx].astype(np.float32)
+#             train_x = torch.from_numpy(train_features)
+#             # print(train_x.size())
+#             train_graph = Data(x=train_x, edge_index=train_edge_index)
+#             # print(train_edge_index.size())
+#             train_graph.y = torch.from_numpy(train_y)
+#             train_set.append(train_graph)
+#         data_loader['train'] = DataLoader(dataset=train_set, batch_size=self.params['batch_size'], shuffle=True,
+#                                           drop_last=True)
+#
+#         valid_set = list()
+#         valid_adj = self.data['valid_adj_matrix']
+#         for idx in range(len(valid_adj)):
+#             source_array, target_array, _ = find(valid_adj[idx])
+#             valid_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['valid_features'][idx][:, -3] == 0) | (self.data['valid_features'][idx][:, -3] == 1) )
+#             self.data['valid_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['valid_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             valid_y = self.data['valid_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             valid_features = self.data['valid_features'][idx][:, features_idx].astype(np.float32)
+#             valid_x = torch.from_numpy(valid_features)
+#             valid_graph = Data(x=valid_x, edge_index=valid_edge_index)
+#             valid_graph.y = torch.from_numpy(valid_y)
+#             valid_set.append(valid_graph)
+#         data_loader['val'] = DataLoader(dataset=valid_set, batch_size=1, shuffle=False,
+#                                           drop_last=True)
+#
+#         test_set = list()
+#         test_adj = self.data['test_adj_matrix']
+#         for idx in range(len(test_adj)):
+#             source_array, target_array, _ = find(test_adj[idx])
+#             test_edge_index = torch.tensor([source_array.tolist(), target_array.tolist()], dtype=torch.long)
+#
+#             no_movement_indices = np.where((self.data['test_features'][idx][:, -3] == 0) | (self.data['test_features'][idx][:, -3] == 1) )
+#             self.data['test_features'][idx][no_movement_indices[0], -2] = 0
+#             self.data['test_features'][idx][no_movement_indices[0], -1] = 0
+#             features_idx = [0, 1, 2, 3, 4, 5]
+#
+#             test_y = self.data['test_features'][idx][:, [-3, -2, -1]].astype(np.float32)
+#             for order in self.params['K_orders']:
+#                     for feature_idx in self.params['features']:
+#                         features_idx.append(6 + 4 * (order - 1) + feature_idx)
+#             test_features = self.data['test_features'][idx][:, features_idx].astype(np.float32)
+#             test_x = torch.from_numpy(test_features)
+#             test_graph = Data(x=test_x, edge_index=test_edge_index)
+#             test_graph.y = torch.from_numpy(test_y)
+#             test_set.append(test_graph)
+#         data_loader['test'] = DataLoader(dataset=test_set, batch_size=1, shuffle=False,
+#                                           drop_last=True)
+#         return data_loader
+#
+#     def get_model(self):
+#         if self.params['task'] == 'Shape_Encoding':
+#             in_channels, out_channels = len(self.params['K_order']) * 9, len(self.params['K_order']) * 9
+#             encoder = GCAEncoder(in_channels, self.params['hidden_layers'])
+#             decoder = GCADecoder(self.params['hidden_layers'], out_channels)
+#             model = GAE(encoder=encoder, decoder=decoder)
+#         elif self.params['task'] == 'Vec_dis':
+#             in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 1
+#             model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
+#         elif self.params['task'] == 'Vec_dir':
+#             in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 1
+#             model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
+#         elif self.params['task'] == 'Vec_dir_dis':
+#             in_channels, out_channels = len(self.params['K_orders']) * len(self.params['features']), 2
+#             model = NodeRegGraphSAGE(in_channels, self.params['hidden_dims'], out_channels, self.params['task'])
+#         else:
+#             raise NotImplementedError('Invalid task.')
+#         if self.params['mode'] == 'test':
+#             model_file = self.params['output_dir'] + '/' + self.params['model_file']
+#             device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#             checkpoint = torch.load(model_file, map_location=device)
+#             model.load_state_dict(checkpoint['model_state_dict'])
+#         return model
+#
+#     def get_cls_loss(self):
+#         if self.params['cls_loss'] == 'NLL':
+#             criterion = nn.NLLLoss(reduction='mean')
+#         else:
+#             raise NotImplementedError('Invalid loss function.')
+#         return criterion
+#
+#     def get_reg_loss(self):
+#         if self.params['reg_loss'] == 'MSE':
+#             criterion = nn.MSELoss(reduction='mean')
+#         elif self.params['reg_loss'] == 'MAE':
+#             criterion = nn.L1Loss(reduction='mean')
+#         elif self.params['reg_loss'] == 'Huber':
+#             criterion = nn.SmoothL1Loss(reduction='mean')
+#         else:
+#             raise NotImplementedError('Invalid loss function.')
+#         return criterion
+#
+#     def get_optimizer(self):
+#         if self.params['optimizer'] == 'Adam':
+#             optimizer = optim.Adam(params=self.model.parameters(),
+#                                    lr=self.params['learn_rate'],  weight_decay=self.params['weight_decay'])
+#             if self.params['mode'] == 'test':
+#                 model_file = self.params['output_dir'] + '/' + self.params['model_file']
+#                 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+#                 checkpoint = torch.load(model_file, map_location=device)
+#                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+#         else:
+#             raise NotImplementedError('Invalid optimizer name.')
+#         return optimizer
+#
+#     def train(self):
+#         train_history = dict()
+#         train_history['epoch'] = list()
+#         train_history['train_loss'] = list()
+#         train_history['train_acc'] = list()
+#         train_history['val_loss'] = list()
+#         # train_history['val_acc'] = list()
+#         # train_history['val_pre'] = list()
+#         # train_history['val_rec'] = list()
+#         # train_history['val_F1'] = list()
+#
+#         train_data = self.data_loader['train']
+#         val_loss = np.inf
+#         print("-----------Start training GCAE model-----------")
+#         for epoch in range(1, 1 + self.params['num_epochs']):
+#             starttime = datetime.now()
+#             checkpoint = {'epoch': 0, 'model_state_dict': self.model.state_dict(),
+#                           'optimizer_state_dict': self.optimizer.state_dict(), 'loss': self.reg_criterion}
+#
+#             self.model.train()
+#             train_loss = 0.0
+#             train_acc = 0.0
+#             batches = 0
+#             for batch in train_data:
+#                 batches += 1
+#                 x = batch.x[:, 6:].float()
+#                 edge_index = batch.edge_index
+#                 output = self.model(x, edge_index)
+#                 if self.params['task'] == 'Vec_dir':
+#                     gt = batch.y[:, 1]
+#                 elif self.params['task'] == 'Vec_dis':
+#                     gt = batch.y[:, 2]
+#                 elif self.params['task'] == 'Vec_dir_dis':
+#                     gt = torch.flatten(batch.y[:, [1, 2]])
+#                 else:
+#                     raise NotImplementedError('Invalid task.')
+#                 batch_train_loss = self.reg_criterion(output, gt)
+#                 train_loss += batch_train_loss.item()
+#                 # train_acc += accuracy(output, batch.y).item()
+#                 train_acc += 0
+#                 self.optimizer.zero_grad()
+#                 batch_train_loss.backward()
+#                 self.optimizer.step()
+#
+#             train_acc = train_acc/batches
+#             epoch_val_loss = self.evaluation(self.data_loader['val'])
+#
+#             if epoch_val_loss['mse'] <= val_loss:
+#                 print(f'Epoch {epoch}, training loss drops from {val_loss:.5} to {train_loss/batches:.5}.  '
+#                       f'Validation mse {epoch_val_loss["mse"]:.5}.'
+#                       f'Update model checkpoint..', f'used {(datetime.now() - starttime).seconds}s', flush = True)
+#
+#                 val_loss = epoch_val_loss['mse']
+#
+#                 checkpoint.update(epoch=epoch, model_state_dict=self.model.state_dict(), optimizer_state_dict = self.optimizer.state_dict())
+#
+#                 orders = ''
+#                 for i in range(len(self.params["K_orders"])):
+#                     orders += str(self.params["K_orders"][i])
+#                     if i < len(self.params["K_orders"]) - 1:
+#                         orders += '&'
+#                 torch.save(checkpoint, self.params['output_dir'] + f'/{self.params["task"]}_{self.params["batch_size"]}_{orders}.pkl')
+#             else:
+#                 print(f'Epoch {epoch}, validation loss does not improve from {val_loss:.5}.',
+#                       f'used {(datetime.now() - starttime).seconds}s')
+#
+#             train_history['epoch'].append(epoch)
+#             train_history['train_loss'].append(train_loss)
+#             train_history['train_acc'].append(train_acc)
+#             train_history['val_loss'].append(val_loss)
+#
+#         pd.DataFrame(train_history).to_csv(
+#             self.params['output_dir'] + '/training_history_{}.csv'.format(datetime.now().strftime('%m%d%Y%H%M%S')))
+#
+#     def test(self):
+#         eval_dp = self.evaluation(self.data_loader['test'])
+#         if self.params['task'] == 'Vec_dir_dis':
+#             print(
+#                 f'Test RMSE of rotation angle is: {eval_dp["rt_rmse"]}. Test RMSE of move distance is: {eval_dp["move_rmse"]}. '
+#                 f'Filtered test RMSE of rotation angle is: {eval_dp["rt_rmse_filter"]}. Filter test RMSE of move distance is: {eval_dp["move_rmse_filter"]}.', flush = True)
+#         print(f'Test RMSE is: {eval_dp["rmse"]}. Filter test RMSE is: {eval_dp["rmse_filter"]}.', flush = True)
+#
+#     def evaluation(self, dataloader):
+#         self.model.eval()
+#         output_list = list()
+#         # y_list = list()
+#         eval_loss = 0.0
+#         gpd_points_list = list()
+#         eval_dp = dict()
+#         # rmse_filter = []
+#
+#         with torch.no_grad():
+#             mse = []
+#             mse_filter = []
+#             batch_idx = 0
+#             rt_mse = []
+#             move_mse = []
+#             rt_mse_filter = []
+#             move_mse_filter = []
+#             for data in dataloader:
+#                 batch_idx += 1
+#                 output = self.model(data.x[:, 6:].float(), data.edge_index)
+#                 # output_list.append(output)
+#                 if self.params['task'] == 'Vec_dir':
+#                     gt = data.y[:, 1]
+#                 elif self.params['task'] == 'Vec_dis':
+#                     gt = data.y[:, 2]
+#                 elif self.params['task'] == 'Vec_dir_dis':
+#                     gt = torch.flatten(data.y[:, [1, 2]])
+#                 else:
+#                     raise NotImplementedError('Invalid task.')
+#
+#                 mse.append(self.reg_criterion(output, gt))
+#                 # dis_filter = torch.abs(data.y[:, 2]) >= torch.tensor(0.01)
+#                 dis_filter = (torch.abs(data.y[:, 1]) + torch.abs(data.y[:, 2]))  >= torch.tensor(0.01)
+#
+#                 if self.params['task'] == 'Vec_dir_dis':
+#                     rt_idx = [2 * i for i in range(int(output.size(dim=0) / 2))]
+#                     move_idx = [2 * i + 1 for i in range(int(output.size(dim=0) / 2))]
+#                     rt_mse.append(
+#                         self.reg_criterion(output[rt_idx], gt[rt_idx]))
+#                     move_mse.append(self.reg_criterion(output[move_idx], gt[move_idx]))
+#                     if dis_filter.nonzero().size(dim=0) != 0:
+#                         rt_idx_filter = dis_filter.nonzero() * 2
+#                         move_idx_filter = dis_filter.nonzero() * 2 + 1
+#                         pred_filter = output[torch.stack([rt_idx_filter, move_idx_filter])]
+#                         gt_filter = gt[torch.stack([rt_idx_filter, move_idx_filter])]
+#                         mse_filter.append(self.reg_criterion(pred_filter, gt_filter))
+#
+#                         rt_mse_filter.append(self.reg_criterion(output[rt_idx_filter], gt[rt_idx_filter]))
+#                         move_mse_filter.append(self.reg_criterion(output[move_idx_filter],gt[move_idx_filter]))
+#                 else:
+#                     pred_filter = output[dis_filter.nonzero()]
+#                     gt_filter = gt[dis_filter.nonzero()]
+#                     if gt_filter.size()[0] != 0 and gt_filter.size()[1] != 0:
+#                         mse_filter.append(self.reg_criterion(pred_filter, gt_filter))
+#
+#             mse = torch.stack(mse)
+#             eval_dp['mse'] = torch.mean(mse).item()
+#             eval_dp['rmse'] = torch.mean(torch.sqrt(mse)).item()
+#             mse_filter = torch.stack(mse_filter)
+#             eval_dp['mse_filter'] = torch.mean(mse_filter).item()
+#             eval_dp['rmse_filter'] = torch.mean(torch.sqrt(mse_filter)).item()
+#             if self.params['task'] == 'Vec_dir_dis':
+#                 rt_mse = torch.stack(rt_mse)
+#                 eval_dp['rt_mse'] = torch.mean(rt_mse).item()
+#                 eval_dp['rt_rmse'] = torch.mean(torch.sqrt(rt_mse)).item()
+#                 rt_mse_filter = torch.stack(rt_mse_filter)
+#                 eval_dp['rt_mse_filter'] = torch.mean(rt_mse_filter).item()
+#                 eval_dp['rt_rmse_filter'] = torch.mean(torch.sqrt(rt_mse_filter)).item()
+#
+#                 move_mse = torch.stack(move_mse)
+#                 eval_dp['move_mse'] = torch.mean(move_mse).item()
+#                 eval_dp['move_rmse'] = torch.mean(torch.sqrt(move_mse)).item()
+#                 move_mse_filter = torch.stack(move_mse_filter)
+#                 eval_dp['move_mse_filter'] = torch.mean(move_mse_filter).item()
+#                 eval_dp['move_rmse_filter'] = torch.mean(torch.sqrt(move_mse_filter)).item()
+#                 if self.params['mode'] == 'test':
+#                     idx = dataloader.dataset.indices[batch_idx]
+#                     graph_features = self.data['features'][idx]
+#                     gpd_points_list.append(STL_recontruct_points(graph_features, output))
+#
+#             if len(gpd_points_list) > 0:
+#                 gpd_points = gpd.GeoDataFrame(pd.concat(gpd_points_list, ignore_index=True))
+#                 gpd_points.to_file(self.params['output_dir'] + '/{}_prediction.shp'.format(self.params['task']))
+#
+#         return eval_dp

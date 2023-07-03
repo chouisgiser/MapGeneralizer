@@ -391,4 +391,10 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
         pred_areas.append(0.0)
     return torch.tensor(gt_areas), torch.tensor(pred_areas), torch.tensor(gt_inangle_sums), torch.tensor(pred_inangle_sums)
 
+def automatic_weight(model, task_loss):
+    total_loss = 0
+    for i in range(len(task_loss)):
+        total_loss += 0.5 / (model.weights[i] ** 2) * task_loss[i] + torch.log(1 + model.weights[i] ** 2)
+    return total_loss
+
 

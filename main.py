@@ -5,12 +5,12 @@
 # @file    : main.py
 """
 import argparse
-from BldgsGenTrainer import SFModelTrainer, MTL_BuildingGen, MTL_BuildingRmJoint, MTL_BuildingGenReg, DPModelTrainer
+from BldgsGenTrainer import MTL_BuildingGen
 from utils import DataInput
 
 map_generalizer = argparse.ArgumentParser(description='Run Polygon Graph with GAE')
-map_generalizer.add_argument('-in', '--input_dir', type=str, default='../../data/MapGeneralizer/input')
-map_generalizer.add_argument('-out', '--output_dir', type=str, default='../../data/MapGeneralizer/output')
+map_generalizer.add_argument('-in', '--input_dir', type=str, default='data/input')
+map_generalizer.add_argument('-out', '--output_dir', type=str, default='data/output')
 map_generalizer.add_argument('-scale', '--src_tar', type=int, nargs='+', default= [5, 10])
 map_generalizer.add_argument('-batch', '--batch_size', type=int, default=64)
 map_generalizer.add_argument('-split', '--split_ratio', type=float, nargs='+',
