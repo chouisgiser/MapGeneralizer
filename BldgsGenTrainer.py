@@ -33,9 +33,9 @@ class MTL_BuildingGen(object):
         self.model = self.get_model()
         self.cls_criterion = self.get_cls_loss()
         self.reg_criterion = self.get_reg_loss()
-        self.iou_criterion = IoULoss()
-        self.hdf_criterion = HausdorffDisLoss()
-        self.tf_criterion = TurningFncLoss()
+        # self.iou_criterion = IoULoss()
+        # self.hdf_criterion = HausdorffDisLoss()
+        # self.tf_criterion = TurningFncLoss()
         self.optimizer = self.get_optimizer()
 
     def get_data_loader(self):
