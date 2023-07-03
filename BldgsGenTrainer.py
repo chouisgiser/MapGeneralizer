@@ -201,7 +201,7 @@ class MTL_BuildingGen(object):
         task_losses = []
         loss_ratios = []
         grad_norm_losses = []
-        print("-----------Start training GCAE model-----------")
+        print("-----------Start training Building Simplification model-----------")
         for epoch in range(1, 1 + self.params['num_epochs']):
 
             starttime = datetime.now()
