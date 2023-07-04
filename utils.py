@@ -30,10 +30,10 @@ class DataInput(object):
         # features = np.load('{}/vertex_{}_{}.npy'.format(self.data_dir, self.scales[0], self.scales[1]), allow_pickle=True)
         train_adj = np.load('{}/adj_train.npy'.format(self.data_dir), allow_pickle=True)
         train_features = np.load('{}/vertex_train.npy'.format(self.data_dir), allow_pickle=True)
-        
+
         valid_adj = np.load('{}/adj_valid.npy'.format(self.data_dir), allow_pickle=True)
         valid_features = np.load('{}/vertex_valid.npy'.format(self.data_dir), allow_pickle=True)
-        
+
         test_adj = np.load('{}/adj_test.npy'.format(self.data_dir), allow_pickle=True)
         test_features = np.load('{}/vertex_test.npy'.format(self.data_dir), allow_pickle=True)
 
@@ -105,7 +105,7 @@ def MTL_recontruct_points2(graph_features, pred_rm, pred_move_dir, pred_move_dis
     gpd_points = gpd.GeoDataFrame(data=gpd_data )
 
     return gpd_points
-    
+
 def MTL_recontruct_points3(graph_features, pred_move_dir, pred_move_dis):
     gpd_data = {
         'osm_id': graph_features[:, 0],
@@ -143,7 +143,7 @@ def label_check(ply_features, polygon):
     source_ply_coords.append(source_ply_coords[0])
     source_ply = Polygon(source_ply_coords)
     centroid = source_ply.centroid
-    
+
 
     target_ply_coords = list()
     for vid in range(len(ply_features)):
@@ -198,7 +198,7 @@ def label_check2(ply_features, polygon):
         # eq_results = solve([Eq(vec_pre[0] * tar_x + vec_pre[1] * tar_y, vec_pre_mod * vertex_features[-2]),
         #         Eq((vec_next[0] * tar_x + vec_next[1] * tar_y), vec_next_mod * vertex_features[-1])], [tar_x, tar_y])
         # target_coord = (cur_src_coord[0] + eq_results[tar_x], cur_src_coord[1] + eq_results[tar_y])
-        
+
         A = np.array([[vec_pre[0], vec_pre[1]], [vec_next[0], vec_next[1]]])
         b = np.array([vec_pre_mod * vertex_features[-2], vec_next_mod * vertex_features[-1]])
         eq_results = np.linalg.solve(A,b)
@@ -220,7 +220,7 @@ def label_check2(ply_features, polygon):
         print('polygon {}\'s iou is: {}'.format(ply_id, iou), flush=True)
         return True
 
-def reconstruct_polygons2(pt_file, gt_target_file):
+def reconstruct_polygons(pt_file, gt_target_file):
     gt_target_plys = gpd.read_file(gt_target_file)
     plys_points = gpd.read_file(pt_file)
     plys_points = plys_points.groupby('osm_id')
@@ -252,13 +252,7 @@ def reconstruct_polygons2(pt_file, gt_target_file):
             vec_next = (next_src_pt.x - cur_src_pt.x, next_src_pt.y - cur_src_pt.y)
             vec_pre_mod = LineString([pre_src_pt, cur_src_pt]).length
             vec_next_mod = LineString([next_src_pt, cur_src_pt]).length
-            # tar_x = Symbol('tar_x')
-            # tar_y = Symbol('tar_y')
-            # eq_results = solve([Eq(vec_pre[0] * tar_x + vec_pre[1] * tar_y, vec_pre_mod * row['pred_dir']),
-            #                     Eq((vec_next[0] * tar_x + vec_next[1] * tar_y), vec_next_mod * row['pred_dis'])],
-            #                   [tar_x, tar_y])
-            # target_coord = (cur_src_pt.x + eq_results[tar_x], cur_src_pt.y + eq_results[tar_y])
-            
+
             try:
                 A = np.array([[vec_pre[0], vec_pre[1]], [vec_next[0], vec_next[1]]])
                 b = np.array([vec_pre_mod * row['pred_dir'], vec_next_mod * row['pred_dis']])
@@ -311,7 +305,7 @@ def reconstruct_polygons2(pt_file, gt_target_file):
 def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
     gt_areas = list()
     pred_areas = list()
-    
+
     gt_inangle_sums = list()
     pred_inangle_sums = list()
 
@@ -321,22 +315,22 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
     for idx in range(len(gt_tensor)):
         if gt_tensor[idx][0] != previous_ply_id:
             if previous_ply_id != -1:
-                
+
                 gt_inangle_sums.append((len(gt_coords) - 2) * 180)
                 pred_inangle_sums.append((len(pred_coords) - 2) * 180)
-                
+
                 gt_coords.append(gt_coords[0])
                 gt_areas.append(Polygon(gt_coords).area)
                 if len(pred_coords) > 2:
                     pred_coords.append(pred_coords[0])
-                    pred_areas.append(Polygon(pred_coords).area)  
+                    pred_areas.append(Polygon(pred_coords).area)
                 else:
-                    pred_areas.append(0.0)  
-                
+                    pred_areas.append(0.0)
+
             previous_ply_id = gt_tensor[idx][0]
             gt_coords.clear()
             pred_coords.clear()
-        
+
         # gt_coords.append((gt_tensor[idx][2].item(), gt_tensor[idx][3].item()))
         cur_src_coord = (gt_tensor[idx][2].item(), gt_tensor[idx][3].item())
         pre_src_coord = (gt_tensor[idx - 1][2].item(), gt_tensor[idx - 1][3].item())
@@ -345,12 +339,12 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
         vec_next = (next_src_coord[0] - cur_src_coord[0], next_src_coord[1] - cur_src_coord[1])
         vec_pre_mod = LineString([pre_src_coord, cur_src_coord]).length
         vec_next_mod = LineString([next_src_coord, cur_src_coord]).length
-        
+
         # print(Y)
         # print(Y[idx])
-        
+
         if Y[idx][0].item() != 0:
-            
+
             try:
                 A = np.array([[vec_pre[0], vec_pre[1]], [vec_next[0], vec_next[1]]])
                 b = np.array([vec_pre_mod * Y[idx][1].item(), vec_next_mod * Y[idx][2].item()])
@@ -362,7 +356,7 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
                 gt_coord = (cur_src_coord[0] + eq_results[0], cur_src_coord[1] + eq_results[1])
             finally:
                 gt_coords.append(gt_coord)
-        
+
         if pred_rm[idx].item() != 0:
             try:
                 A = np.array([[vec_pre[0], vec_pre[1]], [vec_next[0], vec_next[1]]])
@@ -375,10 +369,10 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
                 pred_coord = (cur_src_coord[0] + eq_results[0], cur_src_coord[1] + eq_results[1])
             finally:
                 pred_coords.append(pred_coord)
-    
+
     gt_inangle_sums.append((len(gt_coords) - 2) * 180.0)
     pred_inangle_sums.append((len(pred_coords) - 2) * 180.0)
-    
+
     if len(gt_coords) > 2:
         gt_coords.append(gt_coords[0])
         gt_areas.append(Polygon(gt_coords).area)
@@ -386,7 +380,7 @@ def MTL_reconstruct_polygon(gt_tensor, pred_rm, pred_preMove, pred_nextMove, Y):
         gt_areas.append(0.0)
     if len(pred_coords) > 2:
         pred_coords.append(pred_coords[0])
-        pred_areas.append(Polygon(pred_coords).area)  
+        pred_areas.append(Polygon(pred_coords).area)
     else:
         pred_areas.append(0.0)
     return torch.tensor(gt_areas), torch.tensor(pred_areas), torch.tensor(gt_inangle_sums), torch.tensor(pred_inangle_sums)
@@ -401,5 +395,3 @@ def automatic_weight(model, task_loss):
     for i in range(len(task_loss)):
         total_loss += 0.5 / (model.weights[i] ** 2) * task_loss[i] + torch.log(1 + model.weights[i] ** 2)
     return total_loss
-
-
