@@ -32,7 +32,7 @@ Config the input directory and hyperparameters in main.py and run it. In case of
 
 * **data/input**: the directory where vertex feature and edge adjacency files are input to the model
 * **data/output**: the directory where the trained model (Bldgs_Gen_64_1.pkl) and the predicted vertex labels (the point file: Bldgs_Gen_prediction.shp) are stored
-* **Noete**: to get final simplified buildings, please use the *reconstruct_polygons* function in *utils.py* to reconstruct polygons based on the output point file *Bldgs_Gen_prediction.shp*
+* **Note**: to get final simplified buildings, please use the *reconstruct_polygons* function in *utils.py* to reconstruct polygons based on the output point file *Bldgs_Gen_prediction.shp*
 
 # Citation
 
