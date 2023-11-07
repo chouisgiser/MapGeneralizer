@@ -395,3 +395,81 @@ def automatic_weight(model, task_loss):
     for i in range(len(task_loss)):
         total_loss += 0.5 / (model.weights[i] ** 2) * task_loss[i] + torch.log(1 + model.weights[i] ** 2)
     return total_loss
+
+def reconstruct_polygons2(pt_file, gt_target_file):
+    gt_target_plys = gpd.read_file(gt_target_file)
+    plys_points = gpd.read_file(pt_file)
+    plys_points = plys_points.groupby('osm_id')
+
+    iou_list = list()
+    pos_error_list = list()
+    pred_target_geoms = list()
+    pred_target_ids = list()
+    pos_error_id_list = list()
+    tf_dis_list = list()
+    for name, ply_points in plys_points:
+        osm_id = str(int(ply_points.iloc[0]['osm_id']))
+        gt_target_ply = gt_target_plys.loc[gt_target_plys['JOINID'] == osm_id].iloc[0, :]['geometry']
+        source_ply_coords = [row['geometry'] for idx, row in ply_points.iterrows()]
+        source_ply_coords.append(source_ply_coords[0])
+
+        ref_ply = gt_target_ply
+
+        target_ply_coords = list()
+        for idx in range(ply_points.shape[0]):
+            row = ply_points.iloc[idx]
+            cur_src_pt = row['geometry']
+            pre_src_pt = ply_points.iloc[idx - 1]['geometry']
+            next_src_pt = ply_points.iloc[(idx + 1) % ply_points.shape[0], :]['geometry']
+            vec_pre = (cur_src_pt.x - pre_src_pt.x, cur_src_pt.y - pre_src_pt.y)
+            vec_next = (next_src_pt.x - cur_src_pt.x, next_src_pt.y - cur_src_pt.y)
+            vec_pre_mod = LineString([pre_src_pt, cur_src_pt]).length
+            vec_next_mod = LineString([next_src_pt, cur_src_pt]).length
+
+            try:
+                A = np.array([[vec_pre[0], vec_pre[1]], [vec_next[0], vec_next[1]]])
+                b = np.array([vec_pre_mod * row['pred_predi'], vec_next_mod * row['pred_nextd']])
+                eq_results = np.linalg.solve(A, b)
+            except np.linalg.LinAlgError:
+                target_coord = (cur_src_pt.x, cur_src_pt.y)
+            else:
+                target_coord = (cur_src_pt.x + eq_results[0], cur_src_pt.y + eq_results[1])
+            finally:
+                if row['pred_remov'] == 0:
+                    target_ply_coords.append(target_coord)
+                    ref_ply_coords = list(ref_ply.exterior.coords)
+                    ref_ply_coords.pop()
+                    poly_line = LinearRing(ref_ply_coords)
+                    nearest_dis = poly_line.project(Point(target_coord))
+                    nearest_pt = poly_line.interpolate(nearest_dis)
+                    pos_error = nearest_pt.distance(Point(target_coord))
+                    pos_error_list.append(pos_error)
+                    pos_error_id_list.append(row['osm_id'])
+
+        target_ply_coords.append(target_ply_coords[0])
+        if len(target_ply_coords) < 3:
+            print(osm_id)
+            continue
+        target_ply = Polygon(target_ply_coords)
+        if not target_ply.is_valid:
+            print(osm_id)
+            continue
+        pred_target_geoms.append(target_ply)
+        pred_target_ids.append(osm_id)
+
+        iou = target_ply.intersection(ref_ply).area / target_ply.union(ref_ply).area
+        print('polygon {}\'s iou is: {}'.format(osm_id, iou))
+        iou_list.append(iou)
+
+    gpd_data = {
+        'osm_id': pred_target_ids,
+        'geometry': pred_target_geoms
+    }
+    gpd_plys = gpd.GeoDataFrame(data=gpd_data)
+
+    print(pos_error_id_list[pos_error_list.index(max(pos_error_list))])
+    print(sum(pos_error_list) / len(pos_error_list))
+    print(sum(iou_list) / len(iou_list))
+    print(iou_list.index(min(iou_list)))
+    gpd_plys.to_file(pt_file.replace('.shp', '_polygon.shp'))
+    return gpd_plys, pos_error_list, iou_list
